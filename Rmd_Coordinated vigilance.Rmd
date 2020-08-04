@@ -1,0 +1,826 @@
+---
+title: "Perch behavior coordinated?"
+author: "Annemarie van der Marel"
+date: "08/07/2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+Code for manuscript titled
+
+Synchronizing  vigilance or taking turns as sentinels? The importance of testing assumptions   
+
+by
+
+Annemarie van der Marel, Jane M. Waterman, Marta López-Darias
+
+perch behavior general description
+   do all inidviduals perform perch behavior?
+   prop group members perched per scan
+   
+perch behavior coordination
+   perch behavior from elevated positions?   (prediction 1)
+   coordination of perch bouts?              (predictions 2 and 3)
+
+perch behavior and social conditions analyses
+   age                                       (prediction 4)
+   kinship                                   (prediction 5)
+   parental behavior                         (prediction 6)
+
+perch behavior and survival analyses
+   increased survival                        (prediction 7)
+   decreased survival                        (prediction 8)
+   perch behavior as induced viggilance?     (prediction 9)
+
+# Load libraries
+```{r message=FALSE}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(tidyr)
+library(quantreg)
+library(lqmm) 
+library(lme4)
+library(glmmADMB) 
+#install.packages("R2admb")
+#install.packages("glmmADMB", 
+#    repos=c("http://glmmadmb.r-forge.r-project.org/repos",
+#            getOption("repos")),
+#    type="source")
+library(lmtest)
+library(betareg)
+library(DHARMa)
+library(beanplot)
+sessionInfo() 
+
+```
+
+
+# import data
+We used 10 min scan samples and all occurrence sampling of perch bouts throughout each behavioral observation period in addition to performing 10 min focal follows
+
+```{r}
+## All scans from March till July 2014 to 2016 
+# exlcuded estrus days, all occurrences and unknown ID's, and individuals observed <5 observation periods (dop) and <5 scans (dos)
+scandata<-read.csv("FilteredScanPerchData.csv") # was named 'df' in R code script
+
+## scan and all-occurrence data from our Prim8 input
+#June and July 2015, February till June 2016 excluding all subset criteria
+scandata_prim8<-read.csv("FilteredScanPerchData_Prim8.csv", sep = ",")
+
+## focal follow data
+ff<- read.csv("Aget_focal follows.csv", sep=",") %>%
+  dplyr::select(-X)
+```
+
+#### Perch behavior general description
+
+Do all inidviduals perform perch behavior? 
+```{r}
+# used scandata filterd for ID's observed in at least 5 scans in 5 observation periods
+nIDs<-distinct(scandata, ID)  # 139 ID's observed
+nperched<-filter(scandata, Behaviour.1=="perch") %>%
+  distinct(ID)  # 138 perched
+length(nperched$ID)/length(nIDs$ID)*100 # With filter: 99.3% individuals perch
+```
+
+Proportion group members perched per scan
+
+```{r}
+
+propperch<-group_by(scandata, dop, dos) 
+p1 <- filter(propperch, Behaviour.1 =="perch") %>%
+  summarise(nperch = n()) 
+p2<- summarise(propperch, groupsize = n_distinct(ID)) 
+
+# prop group members on group size
+percperch<- p2 %>% left_join(p1, by=c("dop","dos")) 
+percperch[is.na(percperch)] <- 0
+percperch<-  mutate(percperch, perched= nperch/groupsize) %>%
+  ungroup()
+
+# number of scans
+n_distinct(propperch$dos)
+3134/6 # excluding iDs <5 dop and dos seen
+3174/6 # all individuals included
+
+# average number of individuals perched per group
+perchperscan<-summarise(percperch, mean=mean(perched), sd=sd(perched),
+                        n=n(), se=sd/sqrt(n), 
+                        min=min(perched),max=max(perched))
+
+# what distribution does proportion group members follow?
+qqnorm(percperch$perched)
+qqline(percperch$perched)
+shapiro.test(percperch$perched)
+library(fitdistrplus)
+descdist(percperch$perched, discrete = FALSE) # beta distribution
+
+library(betareg)
+percperch$perched[percperch$perched==0.00]<-0.001
+percperch$perched[percperch$perched==1.00]<-0.999
+model<-betareg(perched ~ groupsize , data = percperch)
+null<-betareg(perched ~ 1 , data = percperch)
+summary(model)
+library(lmtest)
+lrtest(model, null)
+
+# model validation
+plot(fitted(model), residuals(model), xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, lty = 2) #create a dashed horizontal line representing zero
+lines(smooth.spline(fitted(model), residuals(model))) # line should fall on zero line
+
+```
+
+The overall distribution of individuals perched
+
+```{r}
+## watch each other's back? ----
+collperch<- mutate(percperch, bin = "" )
+collperch$bin[collperch$nperch==1]<-1
+collperch$bin[collperch$nperch>1]<-">1"
+collperch$bin[collperch$nperch==0]<-0
+collperch$bin<-factor(collperch$bin, levels=c(0,1,">1"))
+collperch1<-filter(collperch, bin!="0" )
+
+distr.perched<- group_by(collperch, bin) %>%
+  summarise(n=n()) %>%
+  mutate(perc =n/sum(n)*100)
+
+sum(distr.perched$n) # total 3134 scans
+
+propperched<- c(0.2715, 0.3191, 0.4094)
+chisq.test(propperched, p = c(1/3, 1/3, 1/3))
+
+```
+
+```{r , n.perched.scan, cache=FALSE, fig.height=4, fig.width=5.75}
+
+#set plot color by plot element
+bean.alpha <- 0.4
+beaninlines <- alpha("black", 0.2)
+beanoutlines<- alpha("black", 0.2)
+beanavgline <- "purple"
+beanborder <- alpha("black", 0.6)
+
+beanplot(collperch$nperch, las=1, ylab= "number of scans",
+         xlab =  "number of perched individuals per scan",
+         col = list(c(alpha("grey", bean.alpha), beaninlines, beaninlines, "purple")),
+         maxstripline = 0.5, maxwidth = 0.5, horizontal = T)
+
+# save plot
+dev.print(pdf, file="fig1.pdf")
+```
+
+
+
+#### Perch behavior coordination
+# Prediction 1: Perched from elevated positions
+```{r}
+# combine heights any other behavior or when perched
+o <- subset(scandata, height.loc!="na"& Behaviour.1!="perch")%>%
+  mutate(behavior="all") # any other behavior, excluding perch
+p<- subset(scandata, height.loc!="na" & Behaviour.1=="perch" & height.loc>0.3) %>%
+  mutate(behavior="perch") # perch
+height<-bind_rows(o,p) %>%
+  filter(height.loc<8)
+
+hist(height$height.loc)
+shapiro.test(height$height.loc)
+
+wilcox.test(height$height.loc ~ factor(height$behavior))
+
+#Mann-Whitney Z test
+N = 2230
+MWa <- wilcox.test(height$height.loc~ factor(height$behavior), exact=FALSE)
+MWa
+Za = qnorm(MWa$p.value/2)
+Za
+# A common effect size statistic for the Mann–Whitney test is r, 
+# which is the Z value from the test divided by the total number of 
+# observations.  As written here, r varies from 0 to close to 1.  
+# In some formulations, it varies from –1 to 1. 
+ra = abs(Za)/sqrt(N)
+names(ra) = "ra"
+ra
+
+## descriptives 
+sumheight<-group_by(height, behavior) %>%
+  summarise(mean=mean(height.loc), sd=sd(height.loc), n=n(),
+            se=sd/n)
+sumheight
+
+## boxplot
+cat<- factor(height$behavior, levels = c("perch","all"),
+             labels= c("perch behavior", "other behavior"))
+Fig2<-ggplot(height, aes(x = cat, y=height.loc)) +
+  geom_boxplot() +
+  theme_classic() +
+  labs(x="", y="height (m)")
+Fig2
+ggsave("fig2.pdf", width = 84, height = 84, units = "mm")
+
+```
+
+# Predictions 2 and 3: Coordination of perch behavior
+
+ready data
+```{r}
+head(scandata_prim8)
+str(scandata_prim8)
+
+# only select individuals that were observed in 5 scans over at least 5 observation periods
+scandata_prim8_filtered <-  group_by(scandata_prim8, ID) %>% 
+  mutate(total.dop=n_distinct(dop), total.scan=n_distinct(dos)) %>%
+  filter(total.dop>=5)
+
+al<-scandata_prim8_filtered # all individuals
+a<- filter(scandata_prim8_filtered , Age!="4") # only adults
+fem <- filter(scandata_prim8_filtered , Sex!="1"& Age!="4") # only adult females
+```
+
+Individual --> at least 1 perched 
+
+
+```{r}
+# Observed proportion at least 1 perched ----------------------------
+
+# all
+dop1 <-  group_by(al, dop) %>% dplyr::select(Orderkey,dos,dop,ID,group,Behaviour.1,duration) 
+op <-  group_by(al, dop, ID) %>% 
+  dplyr::select(Orderkey,dos,dop,All,ID,group,'Behaviour.1',duration)
+obs <-  summarise(op,scans.ID = n_distinct(dos))  
+obs1<- group_by(obs, dop) %>% 
+  summarise(total.scans = sum(scans.ID), 
+            grp.size = n_distinct(ID)) %>%
+  mutate(time.scans= total.scans*600)  # scans each ID /dop observed
+dop3 <- filter(dop1, Behaviour.1 =="perch", duration > 30) %>%
+  summarise(time.perch = sum(duration)) 
+dop <- obs1 %>% left_join(dop3, by = "dop") %>% 
+  mutate(Pobs.all= time.perch/time.scans) %>% drop_na()
+duration<-dplyr::select(dop, dop, Pobs.all) 
+
+# adults
+dop1 <-  group_by(a, dop) %>%
+  dplyr::select(Orderkey,dos,dop,ID,group,Behaviour.1,duration) 
+op <-  group_by(a, dop, ID) %>% 
+  dplyr::select(Orderkey,dos,dop,All,ID,group,'Behaviour.1',duration)
+obs <-  summarise(op,scans.ID = n_distinct(dos))  
+obs1<- group_by(obs, dop) %>% 
+  summarise(total.scans = sum(scans.ID), 
+            grp.size = n_distinct(ID)) %>%
+  mutate(time.scans= total.scans*600)  # scans each ID /dop observed
+dop3 <- filter(dop1, Behaviour.1 =="perch", duration > 30) %>%
+  summarise(time.perch = sum(duration)) 
+dop <- obs1 %>% left_join(dop3, by = "dop") %>% 
+  mutate(Pobs.adults= time.perch/time.scans) %>% drop_na() %>% 
+  dplyr::select(dop, Pobs.adults)
+duration<-duration %>% left_join(dop,by="dop")
+
+# females
+dop1 <-  group_by(fem, dop) %>%
+  dplyr::select(Orderkey,dos,dop,ID,group,Behaviour.1,duration) 
+op <-  group_by(fem, dop, ID) %>% 
+  dplyr::select(Orderkey,dos,dop,All,ID,group,'Behaviour.1',duration)
+obs <-  summarise(op,scans.ID = n_distinct(dos))  
+obs1<- group_by(obs, dop) %>% 
+  summarise(total.scans = sum(scans.ID), 
+            grp.size = n_distinct(ID)) %>%
+  mutate(time.scans= total.scans*600)  # scans each ID /dop observed
+dop3 <- filter(dop1, Behaviour.1 =="perch", duration > 30) %>%
+  summarise(time.perch = sum(duration)) 
+dop <- obs1 %>% left_join(dop3, by = "dop") %>% 
+  mutate(Pobs.females= time.perch/time.scans) %>% 
+  dplyr::select(dop, Pobs.females)
+duration<-duration %>% left_join(dop,by="dop")
+
+
+# Expected proportion at least 1 perched ----------------------------
+
+# all
+op <-  group_by(al, dop, ID) %>% 
+  dplyr::select(Orderkey,dos,dop,All,ID,group,'Behaviour.1',duration)
+op1 <-  summarise(op,scans.obs = n_distinct(dos))  %>%  
+  mutate(time.obs = scans.obs*600)
+op2 <- op %>% filter(Behaviour.1== "perch", duration > 30) %>%
+  summarise(time.perch = sum(duration))        
+prop = merge(op1, op2,all.x = T) 
+prop$time.perch[is.na(prop$time.perch)]=0
+Pexp.dur <- mutate(prop, exp.dur = time.perch/time.obs)
+#write.csv(Pexp.dur, file="expected.duration.all_draft7.csv") 
+
+# multiplied expected proportion per group in Excel
+exp =read.csv(file="expected.duration.all_draft7.csv", sep = ";")
+product <- exp  %>% group_by(dop) %>% dplyr::select(dop, expected) %>%
+  summarise(exp.all=last(expected)) %>% dplyr::select(dop, exp.all) %>% 
+  mutate(one=1, Pexp.all=one-exp.all) %>% dplyr::select(dop, Pexp.all)
+
+duration<-duration %>% left_join(product, by="dop")
+
+# adults
+op <-  group_by(a, dop, ID) %>% 
+  dplyr::select(Orderkey,dos,dop,All,ID,group,'Behaviour.1',duration)
+op1 <-  summarise(op,scans.obs = n_distinct(dos))  %>%  
+  mutate(time.obs = scans.obs*600)
+op2 <- op %>% filter(Behaviour.1== "perch", duration > 30) %>%
+  summarise(time.perch = sum(duration))        
+prop = merge(op1, op2,all.x = T) 
+prop$time.perch[is.na(prop$time.perch)]=0
+Pexp.dur <- mutate(prop, exp.dur = time.perch/time.obs)
+#write.csv(Pexp.dur, file="expected.duration.adults_draft7.csv")
+exp = read.csv(file="expected.duration.adults_draft7.csv", sep = ";")
+product <- exp  %>% group_by(dop) %>% 
+  dplyr::select(dop, product) %>%
+  summarise(exp.adults=last(product)) %>% 
+  dplyr::select(dop, exp.adults)%>% 
+  mutate(one=1, Pexp.adults=one-exp.adults) %>% 
+  dplyr::select(dop, Pexp.adults)
+duration<-duration %>% left_join(product, by="dop")
+
+
+# females
+op <-  group_by(fem, dop, ID) %>% 
+  dplyr::select(Orderkey,dos,dop,All,ID,group,'Behaviour.1',duration)
+op1 <-  summarise(op,scans.obs = n_distinct(dos))  %>%  
+  mutate(time.obs = scans.obs*600)
+op2 <- op %>% filter(Behaviour.1== "perch", duration > 30) %>%
+  summarise(time.perch = sum(duration))        
+prop = merge(op1, op2,all.x = T) 
+prop$time.perch[is.na(prop$time.perch)]=0
+Pexp.dur <- mutate(prop, exp.dur = time.perch/time.obs)
+#write.csv(Pexp.dur, file="expected.duration.females_draft7.csv")
+exp =read.csv(file="expected.duration.females_draft7.csv", sep = ";")
+product <- exp  %>% group_by(dop) %>% dplyr::select(dop, product) %>%
+  summarise(exp.females=last(product)) %>% 
+  dplyr::select(dop, exp.females)%>% 
+  mutate(one=1, Pexp.females=one-exp.females) %>% 
+  dplyr::select(dop, Pexp.females)
+
+duration<-duration %>% left_join(product, by="dop")
+
+ 
+# combine -------------
+result<-mutate(duration, diff.all=Pobs.all-Pexp.all,
+               diff.adults=Pobs.adults-Pexp.adults,
+               diff.females=Pobs.females-Pexp.females)
+
+# Wilcoxon signed-rank test -----------------------------------------
+
+## all individuals / duraiton
+wilcox.test(result$Pobs.all,result$Pexp.all, paired = T)
+# observed
+mean(result$Pobs.all)
+sd(result$Pobs.all)/sqrt(length(result$Pobs.all))
+#expected
+mean(result$Pexp.all,na.rm=TRUE)
+sd(result$Pexp.all, na.rm = TRUE)/sqrt(length(result$Pexp.all))
+# difference
+mean(result$diff.all,na.rm=TRUE)
+sd(result$diff.all,na.rm=TRUE)/sqrt(length(result$diff.all))
+# sample size
+al<-subset(duration, Pexp.all!="NA") 
+length(result$Pobs.all)
+rm(al)
+
+## adults / duration
+wilcox.test(result$Pobs.adults,result$Pexp.adults, paired = T,na.action="omit" )
+# observed
+mean(result$Pobs.adults,na.rm = TRUE)
+sd(result$Pobs.adults,na.rm = TRUE)/sqrt(length(result$Pobs.adults))
+# expected
+mean(result$Pexp.adults,na.rm=TRUE)
+sd(result$Pexp.adults, na.rm = TRUE)/sqrt(length(result$Pexp.adults))
+# difference
+mean(result$diff.adults,na.rm=TRUE)
+sd(result$diff.adults,na.rm=TRUE)/sqrt(length(result$diff.adults))
+ad<-subset(duration, Pobs.adults!="NA")
+length(ad$Pobs.adults)
+rm(ad)
+
+## adult females / duration
+wilcox.test(result$Pobs.females,result$Pexp.females, paired = T,na.action="omit" )
+# observed
+mean(result$Pobs.females, na.rm = TRUE)
+sd(result$Pobs.females, na.rm = TRUE)/sqrt(length(result$Pobs.females))
+# expected
+mean(result$Pexp.females,na.rm=TRUE)
+sd(result$Pexp.females, na.rm = TRUE)/sqrt(length(result$Pexp.females))
+# difference
+mean(result$diff.females,na.rm=TRUE)
+sd(result$diff.females,na.rm=TRUE)/sqrt(length(result$diff.females))
+fem<-subset(duration, Pobs.females!="NA")
+length(fem$Pexp.females)
+rm(fem)
+
+# clean up
+rm(obs, obs1, dop1, dop3,a,dop,exp,op,op2,p,Pexp.dur,product,
+   prop, op1,f,dur)    
+```
+ 
+#### perch behavior and social conditions analyses ####
+# Age (prediction 4)
+Do different age classes differ in the time they spent foraging, low-quality vigilance and perching?
+```{r}
+str(scandata)
+IDage<-dplyr::select(scandata, ID, Age) %>% group_by(ID) %>% 
+  summarise(Age= first(Age)) %>% filter(Age!=3)
+IDage$ID<-as.integer(IDage$ID)
+
+# foraging
+f0<-  group_by(scandata, dop, ID) %>%
+  dplyr::select(Orderkey,dos,dop,All,ID,group,Behaviour.1,Behaviour.2,duration)
+f1 <- summarise(f0, scans.obs = n_distinct(dos)) 
+f2 <-filter(f0,Behaviour.1== "feed" | Behaviour.2=="feed") %>% 
+  summarise(scans.feed= n_distinct(dos)) 
+f3 = merge(f1,f2,all.x = T)
+f3$scans.feed[is.na(f3$scans.feed)]=0
+f3$scans.obs[is.na(f3$scans.obs)]=0
+IDfeed <- mutate(f3, IDfeed= scans.feed/scans.obs) %>% drop_na(ID)
+
+IDfeedage<- group_by(IDfeed, ID) %>%
+  summarise(avgIDfeed=mean(IDfeed))
+IDfeedage <- merge(IDfeedage,IDage,all.x = T) %>% 
+  drop_na()
+
+kruskal.test(IDfeedage$avgIDfeed~ IDfeedage$Age)
+plot(IDfeedage$avgIDfeed~ as.factor(IDfeedage$Age))
+pairwise.wilcox.test(IDfeedage$avgIDfeed, IDfeedage$Age, p.adjust.method = "holm")
+
+sumfeed<-group_by(IDfeedage, Age) %>%
+  summarise( mean=mean(avgIDfeed), SD=sd(avgIDfeed), n=length(avgIDfeed))
+
+age.feed<-rename(IDfeedage, prop=avgIDfeed, age=Age) %>%
+  mutate(behavior="feeding")
+
+# low-quality vigilance
+v <-  group_by(scandata, dop, ID) %>%
+  dplyr::select(Orderkey,dos,dop,All,ID,group,Behaviour.1,Behaviour.2,duration)
+v1 <- summarise(v, scans.obs = n_distinct(dos)) 
+v2 <-filter(v,Behaviour.1== "vigilant" | Behaviour.2=="vigilant") %>% 
+  summarise(scans.vig= n_distinct(dos)) 
+v3 = merge(v1,v2,all.x = T)
+v3$scans.vig[is.na(v3$scans.vig)]=0
+v3$scans.obs[is.na(v3$scans.obs)]=0
+IDvig<- mutate(v3, ID.vig= scans.vig/scans.obs) %>% drop_na(ID)
+
+IDvigAge<- group_by(IDvig, ID) %>%
+  summarise(avgIDvig=mean(ID.vig))
+IDvigAge<- left_join(IDvigAge, IDage,by="ID") %>% 
+  drop_na()
+age.vig<-rename(IDvigAge, prop=avgIDvig, age=Age) %>%
+  mutate(behavior="low-quality vigilant")
+
+kruskal.test(IDvigAge$avgIDvig~ IDvigAge$Age)
+plot(IDvigAge$avgIDvig~ as.factor(IDvigAge$Age))
+pairwise.wilcox.test(IDvigAge$avgIDvig,IDvigAge$Age)
+
+sumvig<-group_by(IDvigAge, Age) %>%
+  summarise( mean=mean(avgIDvig), SD=sd(avgIDvig), n=length(avgIDvig))
+
+# perch
+p <-  group_by(scandata, dop, ID) %>%
+  dplyr::select(Orderkey,dos,dop,All,ID,group,Behaviour.1,Behaviour.2,duration)
+p1 <- summarise(p, scans.obs = n_distinct(dos)) 
+p2 <-filter(p,Behaviour.1== "perch" | Behaviour.2=="perch") %>%
+  summarise(scans.perch= n_distinct(dos)) 
+p3 = merge(p1,p2,all.x = T)
+p3$scans.perch[is.na(p3$scans.perch)]=0
+p3$scans.obs[is.na(p3$scans.obs)]=0
+IDperch <- mutate(p3, ID.perch= scans.perch/scans.obs) %>% drop_na(ID)
+
+IDperchAge<- group_by(IDperch, ID) %>%
+  summarise(avgIDperch=mean(ID.perch))
+IDperchAge<- left_join(IDperchAge, IDage, by="ID") %>% 
+  drop_na()
+
+age.perch<- rename(IDperchAge, prop=avgIDperch, age=Age) %>%
+  mutate(behavior="perching")
+
+kruskal.test(IDperchAge$avgIDperch~ IDperchAge$Age)
+plot(IDperchAge$avgIDperch~ as.factor(IDperchAge$Age))
+pairwise.wilcox.test(IDperchAge$avgIDperch,IDperchAge$Age)
+
+
+# plot
+a<-bind_rows(age.feed, age.perch, age.vig)
+a$age<-factor(a$age, levels=c(1, 2, 4), 
+              labels=c("adults", "subadults", "juveniles"))
+
+ggplot(a, aes(x=age, y=prop, fill=behavior)) +
+  geom_bar(stat = "identity")+
+  theme_classic() +
+  labs(x="age", y="proportional time spent")
+
+b<-group_by(a, behavior, age) %>%
+  summarise( mean=mean(prop), sd=sd(prop), n=n(), se=sd/sqrt(n))
+
+f2<-ggplot(b, aes(x=age, y=mean)) +
+  geom_bar(stat="identity", colour = "black", fill = "white") +
+  theme_classic() +
+  labs(x="age", y="proportional time spent") +
+  facet_grid(.~behavior) +
+  # theme(strip.background = element_rect(colour="black", fill="white", 
+  #                                     size=1.5, linetype="solid")) +
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se), width=.2,
+                                position=position_dodge(.9)) 
+f2a<- f2 + geom_text(data=data.frame(x=c(2, 2,2.5, 2), y=c(0.45, 0.45, 0.42, 0.45), 
+                                    label = c("*", "*", "*" ,"**"),
+                                    behavior=c("feeding","low-quality vigilant","low-quality vigilant", "perching")),
+                    aes(x,y,label=label), inherit.aes=FALSE) 
+
+f2c<-f2a +   geom_segment(data = data.frame(x1=c(1,2,3), y=0.44, 
+                                            x2=c(2,3, 4),
+                          behavior=c("feeding", "low-quality vigilant" ,"perching")),
+                          aes(x = 1, xend = 3, 
+                              y = 0.44, yend = 0.44),
+                          colour = "black")
+f2c
+f2d<-f2c +   geom_segment(data = data.frame(x1=2, y1=0.41, 
+                                            x2=3,
+                                            behavior=c("low-quality vigilant")),
+                          aes(x = x1, xend = x2,
+                              y = y1, yend = y1),
+                          colour = "black")
+f2d
+ggsave("fig3.pdf", width = 174, height = 100, units = "mm")
+
+```
+
+# kinship (prediction 5)
+```{r}
+str(ff)
+
+k<-drop_na(ff,obs.r)
+k$ID<-as.factor(k$ID)
+min(k$obs.r)
+max(k$obs.r)
+mean(k$obs.r)
+sd(k$obs.r)
+length(k$obs.r)
+sd(k$obs.r)/sqrt(length(k$obs.r))
+
+
+k$kin <- ifelse(k$obs.r<0.125, "non-kin","kin")
+mean(k$vigilance[k$kin=="non-kin"])
+sd(k$vigilance[k$kin=="non-kin"])
+length(k$vigilance[k$kin=="non-kin"])
+sd(k$vigilance[k$kin=="non-kin"])/sqrt(length(k$vigilance[k$kin=="non-kin"]))
+
+mean(k$vigilance[k$kin=="kin"])
+sd(k$vigilance[k$kin=="kin"])
+length(k$vigilance[k$kin=="kin"])
+sd(k$vigilance[k$kin=="kin"])/sqrt(length(k$vigilance[k$kin=="kin"]))
+
+m.kin<-glmmadmb(vigilance~ kin + (1|ID), data=k, family="beta")
+m.kin0<-glmmadmb(vigilance~ 1 + (1|ID), data=k, family="beta")
+summary(m.kin)  # Chi: df=1, deviance = 0.21, P = 0.65
+summary(m.kin0)
+anova(m.kin, m.kin0)
+lrtest(m.kin, m.kin0)
+ggplot(k, aes(x=as.factor(kin), y=vigilance)) +
+  geom_boxplot() +
+  theme_classic() 
+
+cor.test(k$obs.r, k$vigilance, method = "spearman" )
+ggplot(k, aes(x=obs.r, y=vigilance)) +
+  geom_point() +
+  theme_classic() +
+  labs(x= "relatedness", y = "proportion time spent perched") 
+
+# +  geom_abline(slope = -0.05)
+#ggsave("fig3.jpeg", height = 100, width = 129, units = "mm")
+```
+
+# parental behavior              (prediction 6)
+```{r}
+# use focal follows
+j<-drop_na(ff,juveniles) # remove NA's in column juveniles
+j<-subset(j,Sex==2)      # only select females
+j$ID<-as.factor(j$ID)
+#distinct(j$ID)
+
+sum.juv<-group_by(j, juveniles) %>%
+  summarise(mean = mean(vigilance), sd=sd(vigilance), 
+            n = n(), se=sd/sqrt(n), females=n_distinct(ID))
+mean(j$vigilance[j$juveniles=="absent"])
+sd(j$vigilance[j$juveniles=="absent"])/sqrt(length(j$vigilance[j$juveniles=="absent"]))
+mean(j$vigilance[j$juveniles=="present"])
+sd(j$vigilance[j$juveniles=="present"])/sqrt(length(j$vigilance[j$juveniles=="present"]))
+
+m.juv<-glmmadmb(vigilance~ juveniles + (1|ID), data=j, family="beta")
+m0<-glmmadmb(vigilance~ 1 + (1|ID), data=j, family="beta")
+summary(m.juv)
+lrtest(m.juv, m0)
+plot(j$vigilance~as.factor(j$juveniles))
+
+plot(fitted(m.juv), residuals(m.juv), xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, lty = 2) #create a dashed horizontal line representing zero
+lines(smooth.spline(fitted(m.juv), residuals(m.juv))) 
+```
+#### perch behavior and survival analyses ####
+
+# increased survival   (prediction 7)
+```{r}
+# individuals are closer to cover when perched
+dc<-read.csv("distance.from.cover.csv", sep = ";")
+dc0<-group_by(dc, focalfollowsid, behaviour1) %>% 
+  dplyr::select(focalfollowsid, behaviour1, dc)
+dc1<-summarise(dc0, mean= mean(dc)) %>% 
+  mutate(sum=n()) %>% 
+  filter(sum>1) %>% 
+  dplyr::select(focalfollowsid, behaviour1,mean)
+dc2<- spread(dc1, key = behaviour1, value = mean )
+
+hist(dc1$mean)
+wilcox.test(dc2$perch,dc2$feed, paired=TRUE)
+mean(dc2$perch)
+sd(dc2$perch)/sqrt(length(dc2$perch))
+mean(dc2$feed)
+sd(dc2$feed)/sqrt(length(dc2$feed))
+
+# no difference in time spent perched alone vs. in a group
+g<-  drop_na(ff,gr.size)
+g$ID<-as.factor(g$ID)
+g$group <- ifelse(g$gr.size==0, "alone","group")
+m<-glmmadmb(vigilance~ group + (1|ID), data=g, family="beta")
+m0<-glmmadmb(vigilance~ 1 + (1|ID), data=g, family="beta")
+summary(m)
+library(lmtest)
+lrtest(m, m0)
+
+plot(vigilance~ as.factor(group), data = g)
+
+alone <- g$perch.ratio[g$gr.size==0] 
+mean(alone)
+sd(alone)/sqrt(length(alone))
+length(alone)
+group <- g$perch.ratio[g$gr.size>0]
+mean(group)
+sd(group)/sqrt(length(group))
+length(group)
+
+```
+
+# decreased survival       (prediction 8)
+```{r}
+# lower survival
+sv <- group_by(ff, ID) %>%
+  dplyr::select(ID, replicate, perch.duration, survival, lived.till, agedeath) %>%
+  mutate(replicates=n_distinct(replicate),
+         total.time=replicates*600,
+         total.perch=sum(perch.duration),
+         prop.perch=total.perch/total.time) %>%
+  dplyr::select(ID, survival, lived.till, agedeath, prop.perch) %>% 
+  distinct()
+
+length(sv$ID[sv$survival==0])
+length(sv$ID)
+
+sv$prop.perch[sv$prop.perch==0.00]<-0.001
+sv$prop.perch[sv$prop.perch==1.00]<-0.999
+
+model<-betareg(prop.perch ~ survival + lived.till + agedeath, data = sv)
+null<-betareg(prop.perch ~ 1, data = sv)
+summary(model)
+lrtest(model, null)
+
+plot(sv$prop.perch ~ as.factor(sv$survival))
+plot(sv$prop.perch ~ (sv$lived.till))
+plot(sv$prop.perch ~ as.factor(sv$agedeath))
+
+plot(fitted(model), residuals(model), xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, lty = 2) #create a dashed horizontal line representing zero
+lines(smooth.spline(fitted(model), residuals(model))) 
+
+# less time foraging when perching
+
+# using frequency, not duration
+# 1. per ID; total scans observed*scans=total time observed
+op <-  group_by(scandata, ID) %>% 
+  dplyr::select(Orderkey,Scan,dop,dos,All,ID,group,'Behaviour.1','Behaviour.2',
+         duration)
+op1 <- summarise(op, scans.obs = n_distinct(dos)) 
+
+# 2. total time spent perched or feeding per ID 
+op2 <-filter(op,Behaviour.1== "perch" ) %>% 
+  summarise(scans.perch= n_distinct(Scan)) 
+opp2 <-filter(op,Behaviour.2== "perch") %>% 
+  summarise(scans.perch= n_distinct(Scan)) 
+opf <- filter(op, Behaviour.1== "feed") %>% 
+  summarise(scans.feed= n_distinct(Scan)) 
+opf2 <- filter(op, Behaviour.2== "feed") %>% 
+  summarise(scans.feed= n_distinct(Scan)) 
+
+# merge
+mer.perch<-merge(op1,op2,all.x = T)
+opp<-merge(mer.perch,opp2,all.x = T)
+mer.feed<- merge(op1,opf,all.x = T)
+opf<-merge(mer.feed,opf2,all.x = T)
+prop = merge(opp,opf,all.x = T)
+prop$scans.obs[is.na(prop$scans.obs)]=0
+prop$scans.perch[is.na(prop$scans.perch)]=0
+prop$scans.feed[is.na(prop$scans.feed)]=0
+
+ratio <- mutate(prop, perch= scans.perch/scans.obs, 
+                feed=scans.feed/scans.obs, check=perch+feed) 
+plot(ratio$perch~ratio$feed)
+cor.test(ratio$perch,ratio$feed, method="spearman")
+
+ggplot(ratio, aes(x=feed, y=perch)) + 
+  geom_point() +
+  theme_classic() +
+  labs(x="foraging", y="perching")
+
+
+# Body condition index: taking the residuals from a linear regression 
+# of log body mass (g) on log spine length (mm)/ log hindfoot (mm)
+c<-subset(ff, hindfoot!="na")
+
+m<-lm(log(c$Mass)~ log(c$hindfoot))
+summary(m)
+c$bc<-resid(m)
+
+plot(c$vigilance~c$bc)
+
+c$ID<-as.factor(c$ID)
+m.bc<-glmmadmb(vigilance ~ bc + (1|ID) , data = c,
+               family="beta")
+m0<-glmmadmb(vigilance ~ 1 + (1|ID) , data = c,
+             family="beta")
+summary(m.bc)
+lrtest(m.bc, m0)
+
+plot(fitted(m.bc), residuals(m.bc), xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, lty = 2) #create a dashed horizontal line representing zero
+lines(smooth.spline(fitted(m.bc), residuals(m.bc))) 
+
+```
+
+#  perch behavior as induced vigilance?     (prediction 9)
+```{r}
+
+# import data: all scans, excluding days of estrus & days of predator encounters
+without<- read.csv("Obs_final_Vig + Group.csv", sep=";",stringsAsFactors=F)
+without<-filter(without, All!="yes")
+without<-dplyr::select(without, Orderkey,Year, Julian.date,dos, dop, Site, ID, Sex, Age,
+                Behaviour.1) %>% 
+  mutate(extstimulus = "without")
+without$Orderkey<-as.integer(without$Orderkey)
+
+# select only days with predator encounters
+with<-anti_join(scandata,without, by="Orderkey" ) %>% 
+  mutate(extstimulus = "with")
+
+# perched with and without
+perchwith<-group_by(with, dop, dos) 
+p1<-  filter(perchwith, Behaviour.1 =="perch") %>%
+  summarise(nperch = n()) 
+p2<- summarise(perchwith, groupsize = n_distinct(ID)) 
+perchwith<- p1 %>% left_join(p2, by=c("dop","dos")) %>%
+  mutate(perched= nperch/groupsize) %>%
+  mutate(extstimulus="with") %>%
+  ungroup() 
+
+perchwithout<-group_by(without, dop, dos) 
+p3<-  filter(perchwithout, Behaviour.1 =="perch") %>%
+  summarise(nperch = n()) 
+p4<- summarise(perchwithout, groupsize = n_distinct(ID)) 
+perchwithout<- p3 %>% left_join(p4, by=c("dop","dos")) %>%
+  mutate(perched= nperch/groupsize) %>%
+  mutate(extstimulus="without") %>%
+  ungroup()
+
+# results
+ext.stim<-bind_rows(perchwith, perchwithout)
+summ<-group_by(ext.stim, extstimulus) %>%
+  summarise(mean=mean(perched), sd=sd(perched),
+            n=n(), se=sd/sqrt(n), 
+            min=min(perched),max=max(perched))
+
+ggplot(ext.stim, aes(x=extstimulus, y=perched)) +
+  geom_boxplot() +
+  theme_classic() +
+  labs(x = "external stimulus", y="perched individuals/scan")
+
+hist(ext.stim$perched)
+shapiro.test(ext.stim$perched)
+wilcox.test(ext.stim$perched ~ ext.stim$extstimulus)
+
+#Mann-Whitney Z test
+N = 417+2192
+#option: qnorm
+MWa <- wilcox.test(ext.stim$perched ~ ext.stim$extstimulus, exact=FALSE)
+MWa
+Za = qnorm(MWa$p.value/2)
+Za
+
+# A common effect size statistic is r, 
+# which is the Z value from the test divided by the total number of 
+# observations.  As written here, r varies from 0 to close to 1.  
+# In some formulations, it varies from –1 to 1. 
+ra = abs(Za)/sqrt(N)
+names(ra) = "ra"
+ra
+```
+
+
