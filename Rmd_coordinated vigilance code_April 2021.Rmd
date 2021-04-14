@@ -5,6 +5,8 @@ date: "08/07/2020"
 output:
   html_document: default
   pdf_document: default
+editor_options: 
+  chunk_output_type: console
 ---
 Code for manuscript titled
 
@@ -23,14 +25,8 @@ submitted to Behavioral ecology & sociobiology July 2020, revision April 2021
 library(tidyr)
 library(dplyr)
 library(ggplot2)
-#library(tidyverse)
 library(lme4)
 library(glmmADMB) 
-#install.packages("R2admb")
-#install.packages("glmmADMB", 
-#    repos=c("http://glmmadmb.r-forge.r-project.org/repos",
-#            getOption("repos")),
-#    type="source")
 library(lmtest)
 library(betareg)
 library(DHARMa)
@@ -92,31 +88,6 @@ scanprim8_groupsize_dop <-scanprim8 %>% dplyr::group_by(dop) %>%
 # General description daily activity
 Use all scandata (2014-2016)
 
-#### how does the average day of a ground squirrel look like?
-When do the ground squirrels emerge from their burrows
-```{r}
-outburrow <- scandata %>% 
-  filter(behaviour_1 =="out burrow" | behaviour_2=="out burrow")
-
-ggplot(outburrow, aes(x=month, y=time)) +
-  geom_line()
-plot(as.factor(outburrow$month) ~ outburrow$time)
-
-outburrow$ym<-paste(outburrow$year, outburrow$month, sep = "-")
-
-outburrow.sum<-outburrow %>% filter(time<"12:00:00") %>% group_by(month) %>%
-  summarise(n= n(), min=min(time), max=max(time))
-
-inburrow <- scandata %>% 
-  filter(behaviour_1 =="in burrow" | behaviour_2=="in burrow")
-inburrow.sum<-outburrow %>% filter(time>"15:00:00") %>% group_by(month) %>%
-  summarise(n= n(), min=min(time), max=max(time))
-
-```
-
-
-
-## behavior description using scandata 
 foraging and perching:
   - when performing the behavior in the day?
   - proportion group members performing behavior
@@ -131,8 +102,11 @@ Foraging:
 Perching:
   - do all squirrels perform the behavior?
 
-When do ground squirrels forage?
-```{r when foraging}
+## when performing behavior
+```{r when performing behvaior}
+
+
+##  foraging
 df_feed<- scandata %>%
   filter( behaviour_1 =="feed" | behaviour_2=="feed") %>% ungroup() %>% 
   mutate(tod=if_else(time<"10:00:00", "early morning", 
@@ -141,56 +115,26 @@ df_feed<- scandata %>%
 time_feed <- df_feed %>% group_by(tod) %>%
   summarise(n=n())
 
-ggplot(time_feed, aes(x=n)) +
-  geom_histogram(stat="count")
-hist(time_feed$n)
-plot(y=time_feed$n, x=as.factor(time_feed$tod))
+time_feed 
 
-df_feed$hms <- as.POSIXct(df_feed$time, format = "%H:%M:%S")
-df_feed$hms <- format(as.POSIXct(df_feed$hms), format = "%H:%M:%S")
 
-# update Time column
-hour(df_feed$time)
-minute(df_feed$time)
-second(df_feed$time)
-
-time_feed<- df_feed %>% dplyr::group_by(dop) %>%
-  summarise(min=min(hms), max=max(hms), range=max-min) %>%
-  mutate(tod=if_else(min<10:00:00, "early morning", 
-                     if_else(min<12:00:00, "morning", 
-                             if_else(min<15:00:00, "midday", "afternoon"))))
-  summarise(min=min(strptime(hms, "%H:%M:%S")), max=max(strptime(hms, "%H:%M:%S")))
-
-range(df_feed$hms)
-min(df_feed$time)
-max(df_feed$time)
-
-```
-
-When do ground squirrels perch?
-```{r when perching}
-# scandata (all observations) or scanprim8
+## perching
 df_perch<- scandata %>% 
   filter( behaviour_1 =="perch" | behaviour_2=="perch") %>% ungroup() %>% 
   mutate(tod=if_else(time<"10:00:00", "early morning", 
                      if_else(time<"12:00:00", "morning", 
                              if_else(time<"15:00:00", "midday", "afternoon"))))
 
-df_perch<- scanprim8 %>% # scandata (all observations) or scanprim8
-  filter( behaviour_1 =="perch" | behaviour_2=="perch", duration>30) %>% ungroup() %>% 
-  mutate(tod=if_else(time<"10:00:00", "early morning", 
-                     if_else(time<"12:00:00", "morning", 
-                             if_else(time<"15:00:00", "midday", "afternoon"))))
-
 time_perch <- df_perch %>% group_by(tod) %>%
   summarise(n=n())
-
+time_perch 
 
 ```
 
 
 
-per scan proportion group members feeding
+## proportion group members per scan 
+foraging
 ```{r prop feeding/scan}
 unique(scandata$behaviour_1)
 unique(scandata$behaviour_2)
@@ -223,16 +167,11 @@ feedpropscan<-summarise(propfeed, mean=mean(foraging), sd=sd(foraging),
 feedIDscan<-summarise(propfeed, mean=mean(nfeed), sd=sd(nfeed),
                         n=n(), se=sd/sqrt(n), 
                         min=min(nfeed),max=max(nfeed))
-
+feedpropscan
 ```
 
-per scan proportion group members perching
+Perching
 ```{r prop perching/scan}
-## all observations
-unique(scandata$behaviour_1)
-unique(scandata$behaviour_2)
-unique(scandata$behaviour_3)
-
 
 propperch<-group_by(scandata, dop, dos) 
 p1 <- filter(propperch, behaviour_1 =="perch" | behaviour_2=="perch") %>%
@@ -260,95 +199,11 @@ perchpropscan<-summarise(propperch, mean=mean(perching), sd=sd(perching),
 perchIDscan<-summarise(propperch, mean=mean(nperch), sd=sd(nperch),
                         n=n(), se=sd/sqrt(n), 
                         min=min(nperch),max=max(nperch))
+perchpropscan
 
-
-## per group ----
-
-propperch<- dplyr::group_by(scandata, dop, dos, group) 
-p1 <- dplyr::filter(propperch, behaviour_1 =="perch" | behaviour_2=="perch") %>%
-  dplyr::summarise(nperch = n()) 
-p2<- dplyr::summarise(propperch, groupsize = n_distinct(id)) 
-
-# prop group members on group size
-propperch<- p2 %>% left_join(p1, by=c("dop","dos", "group")) 
-propperch[is.na(propperch)] <- 0
-propperch <-  mutate(propperch, perching = nperch/groupsize) %>%
-  dplyr::filter(!perching>1) %>%
-  ungroup()
-# check
-range(propperch$perching)
-#check<- filter(scandata, dos=="859_2_919" |dos=="860_1_930"  )
-
-# number of scans
-n_distinct(propperch$dos)
-3131/6 # excluding iDs <5 dop and dos seen
-#3174/6 # all individuals included
-
-# average number of individuals perched per group
-perchpropscangroup<-propperch %>% dplyr::group_by(group) %>%
-  dplyr::summarise(mean=mean(perching), sd=sd(perching),
-                        n=n(), se=sd/sqrt(n), 
-                        min=min(perching),max=max(perching))
-perchpropscangroup<-propperch %>% 
-  dplyr::summarise(mean=mean(perching), sd=sd(perching),
-                        n=n(), se=sd/sqrt(n), 
-                        min=min(perching),max=max(perching))
-perchIDscan<-summarise(propperch, mean=mean(nperch), sd=sd(nperch),
-                        n=n(), se=sd/sqrt(n), 
-                        min=min(nperch),max=max(nperch))
-
-
-
-# prim8 observations
-propperch<-group_by(scanprim8, dop, dos) 
-p1 <- filter(propperch, behaviour_1 =="perch" | behaviour_2=="perch", duration>30) %>%
-  summarise(nperch = n()) 
-p2<- summarise(propperch, groupsize = n_distinct(ID)) 
-
-# prop group members on group size
-percperch<- p2 %>% left_join(p1, by=c("dop","dos")) 
-percperch[is.na(percperch)] <- 0
-percperch<-  mutate(percperch, perched= nperch/groupsize) %>%
-  ungroup()
-
-# number of scans
-n_distinct(propperch$dos)
-3134/6 # excluding iDs <5 dop and dos seen
-3174/6 # all individuals included
-
-# average number of individuals perched per group
-perchperscan<-summarise(percperch, mean=mean(perched), sd=sd(perched),
-                        n=n(), se=sd/sqrt(n), 
-                        min=min(perched),max=max(perched))
-
-# what distribution does proportion group members follow?
-qqnorm(percperch$perched)
-qqline(percperch$perched)
-shapiro.test(percperch$perched)
-library(fitdistrplus)
-descdist(percperch$perched, discrete = FALSE) # beta distribution
-
-library(betareg)
-percperch$perched[percperch$perched==0.00]<-0.001
-percperch$perched[percperch$perched==1.00]<-0.999
-model<-betareg(perched ~ groupsize , data = percperch)
-null<-betareg(perched ~ 1 , data = percperch)
-summary(model)
-library(lmtest)
-lrtest(model, null)
-
-# model validation
-plot(fitted(model), residuals(model), xlab = "Fitted Values", ylab = "Residuals")
-abline(h = 0, lty = 2) #create a dashed horizontal line representing zero
-lines(smooth.spline(fitted(model), residuals(model))) # line should fall on zero line
-
-ggplot(percperch, aes(x=groupsize, y=perched)) +
-  geom_point() +
-  theme_classic() +
-  geom_abline(intercept = -0.27, slope = 0.07)
 ```
 
-
+## Distance between group members
 Per scan max distance between 2 (foraging/perching) group members
 ```{r distance between groupmembers}
 
@@ -477,57 +332,27 @@ dist_perch_group_summ
 ```
 
 
-## Distance from cover when feeding
-```{r}
-dist_feed <- read.csv("Aget_forage distance.csv", sep = ";") # file with distances calculated using Google earth from max distance between foraging areas and cover(rock walls/burrows) or from nest burrows to foraging locations
-
-# max distance from nest burrow to foraging locations
-max_feed <- dist_feed %>% filter(type=="nest to feed") %>%
-   summarise(avedc=mean(max_dist_feed), min=min(max_dist_feed), max(max_dist_feed), sd=sd(max_dist_feed), n=n())
 
 
-# distance to cover when foraging
-dc_feed<- scandata %>%
-  filter( behaviour_1 =="feed" | behaviour_2=="feed", dc!="NA") %>%
-  summarise(avedc=mean(dc), min=min(dc), max(dc), sd=sd(dc), n=n())
+# Perch behavior characteristics
 
-# max distance to cover when foraging
-dc_feed1<-dist_feed %>% filter(type=="cover") %>%
-   summarise(avedc=mean(max_dist_feed), min=min(max_dist_feed), max(max_dist_feed), sd=sd(max_dist_feed), n=n())
-
-```
-
-
-
-#### perching behavior description using scandata
-% of perch behavior performed close to burrows vs foraging areas? 
-Barbary ground squirrels perform high-quality vigilance behaviors either on the ground or away from foraging areas in raised positions (>30 cm from the ground) (van der Marel, pers. obs.). We termed this particular latter vigilance type ‘perch behavior'.  Thus, by definition perch behavior is performed away from foraging areas. 
-
-
-####Do all individuals perform perch behavior? 
+## Do all individuals perform perch behavior? 
 ```{r}
 # used scandata filtered for ID's observed in at least 5 scans in 5 observation periods
-nIDs<-distinct(scandata, id)  # 139 ID's observed
+nIDs<-distinct(scandata, id)  
 nperched<-filter(scandata, behaviour_1 =="perch" | behaviour_2=="perch") %>%
-  distinct(id)  # 138 perched
+  distinct(id)  
 length(nperched$id)/length(nIDs$id)*100 # With filter: 99.3% individuals perch
-
-# using observations recorded using prim8
-head(scanprim8)
-nIDs<-distinct(scanprim8, id)  # 90 ID's observed
-nperched <- scanprim8 %>% 
-  filter(behaviour_1 =="perch" | behaviour_2=="perch", duration > 30) %>%
-  distinct(id)  # 85 perched
-length(nperched$id)/length(nIDs$id)*100 # With filter: 94.5% individuals perch
 
 
 ```
 
 
+## Predator presence
+perch behavior when predators are not observed and present
+% perched individuals (induced vigilance?)
 
-
-# Predator present vs absent and % perched individuals (induced vigilance?)
-
+amount of time spent perched predator presence and absence
 ```{r predation risk}
 head(scandata)
 
@@ -552,15 +377,18 @@ percperch<-  mutate(perch, perched= nperch/groupsize) %>%
 
 # difference in propperch predator absent vs present
 # average number of individuals perched per group
-perchperscan <- dplyr::summarise(percperch, mean=mean(perched), sd=sd(perched),
-                        n=n(), se=sd/sqrt(n), 
-                        min=min(perched),max=max(perched))
+perchperscan <- dplyr::summarise(percperch, 
+                                 mean=mean(perched), 
+                                 sd=sd(perched),
+                                 n=n(), se=sd/sqrt(n),
+                                 min=min(perched),max=max(perched))
 perchperscan.pred <- percperch %>%
   dplyr::group_by(extstimulus) %>%
   dplyr::summarise( mean=mean(perched), sd=sd(perched),
                         n=n(), se=sd/sqrt(n), 
                         min=min(perched),max=max(perched))
 
+# plot 
 fig_extstimulus<- ggplot(percperch, aes(x=extstimulus, y=perched)) +
   geom_boxplot() +
   theme_classic() +
@@ -572,7 +400,7 @@ shapiro.test(percperch$perched)
 wilcox.test(percperch$perched ~ percperch$extstimulus)
 
 #Mann-Whitney Z test
-N = 210+3018
+N = 210+3023
 #option: qnorm
 MWa <- wilcox.test(percperch$perched ~ percperch$extstimulus, exact=FALSE)
 MWa
@@ -588,45 +416,17 @@ names(ra) = "ra"
 ra
 
 
-
-# what distribution does proportion group members follow?
-qqnorm(percperch$perched)
-qqline(percperch$perched)
-shapiro.test(percperch$perched)
-library(fitdistrplus)
-descdist(percperch$perched, discrete = FALSE) # beta distribution
-
-library(betareg)
-percperch$perched[percperch$perched==0.00]<-0.001
-percperch$perched[percperch$perched==1.00]<-0.999
-model<-betareg(perched ~ groupsize*extstimulus , data = percperch)
-null<-betareg(perched ~ 1 , data = percperch)
-summary(model)
-library(lmtest)
-lrtest(model, null)
-
-# model validation
-plot(fitted(model), residuals(model), xlab = "Fitted Values", ylab = "Residuals")
-abline(h = 0, lty = 2) #create a dashed horizontal line representing zero
-lines(smooth.spline(fitted(model), residuals(model))) # line should fall on zero line
-
-
-
-
 ```
 
-
-
-#### Proportion group members perched per scan
-
-```{r}
+Proportion group members perched per scan
+```{r prop perched predator absence vs presence}
 
 head(percperch) 
 collperch<- mutate(percperch, bin = "")
 
 collperch$bin[collperch$nperch==1]<-1
 collperch$bin[collperch$nperch>1]<-">1"
-collperch$bin[collperch$nperch==0]<-0
+collperch$bin[collperch$nperch==0.0]<-0
 collperch$bin<-factor(collperch$bin, levels=c(0,1,">1"))
 
 head(collperch)
@@ -635,40 +435,28 @@ head(collperch)
 distr.perched<- dplyr::group_by(collperch, extstimulus, bin) %>%
  dplyr::summarise(n=n()) %>%
   mutate(perc =n/sum(n))
-
-ggplot(distr.perched, aes(x=bin, y=perc, fill=extstimulus)) +
-  geom_col(position = "dodge") +
-  theme_classic() +
-  labs(x = "number of perched squirrels", y= "proportion of scans") +
-  scale_fill_viridis(discrete = T, begin= 0.2, end= 0.9, option = "E") 
-
-sum(distr.perched$n) # total 3228 scans (absent: 3018, present: 210)
+sum(distr.perched$n) # total 3233 scans (absent: 3023, present: 210)
 
 # controlled for number of scans
 all<- dplyr::group_by(collperch,  bin) %>%
  dplyr::summarise(n=n()) %>%
   mutate(perc =n/sum(n))
+sum(all$n)
 absent<- collperch %>% dplyr::filter(extstimulus == "not observed") %>%
   dplyr::group_by(extstimulus, bin) %>%
   dplyr::summarise(n=n()) %>%
   mutate(perc =n/sum(n))
+sum(absent$n)
 present<- collperch %>% dplyr::filter(extstimulus == "predator") %>%
   dplyr::group_by(extstimulus, bin) %>%
   dplyr::summarise(n=n()) %>%
   mutate(perc =n/sum(n))
+sum(present$n)
+
+# plot
 
 extstim <- bind_rows(absent, present)
 
-chisq.test(distr.perched$perc[distr.perched$extstimulus=="none"], p = c(1/3, 1/3, 1/3))
-chisq.test(distr.perched$perc[distr.perched$extstimulus=="predator"], p = c(1/3, 1/3, 1/3))
-
-propperched<- c(0.2715, 0.3191, 0.4094)
-propperched<- c(0.2724, 0.3231, 0.4062)
-chisq.test(propperched, p = c(1/3, 1/3, 1/3))
-
-
-# plot
- 
 fig_predator <- ggplot(extstim, aes(x=bin, y=perc, fill=extstimulus)) +
   geom_col(position = "dodge") +
   theme_classic() +
@@ -676,27 +464,10 @@ fig_predator <- ggplot(extstim, aes(x=bin, y=perc, fill=extstimulus)) +
   scale_fill_viridis(discrete = T, begin= 0.2, end= 0.9, option = "E") 
 fig_predator
 
- ggsave(fig_predator, filename = "perched_scan_pred.pdf")
- 
-# model
- model<-betareg(perched ~ bin*extstimulus , data = collperch)
- model1<-betareg(perched ~ bin +extstimulus , data = collperch)
-null<-betareg(perched ~ 1 , data = collperch)
-summary(model)
-summary(model1)
-AIC(model, model1, null)
-
-library(lmtest)
-lrtest(model1, null)
-
-# model validation
-plot(fitted(model), residuals(model), xlab = "Fitted Values", ylab = "Residuals")
-abline(h = 0, lty = 2) #create a dashed horizontal line representing zero
-lines(smooth.spline(fitted(model), residuals(model))) # line should fall on zero line
- 
-
 
 ```
+
+
 
 ```{r predator plot}
 
@@ -725,6 +496,7 @@ perching - propfeed + bc + survival + (1|year) + (1|id)
 ```{r cost of perching model}
 
 glimpse(df_cost)
+df_cost$year<-as.factor(df_cost$year)
 head(df_cost)
 
 nsum<- df_cost %>%
@@ -764,7 +536,8 @@ dfz = data.frame(Z) # Data Frame with predictor variables
 vif(dfz) # VIF > 3
 
 ## model propperch -> beta distribution ----
-citation("glmmADMB")
+#citation("glmmADMB")
+
 mfull<- glmmadmb(propperch ~ propfeed + bc  + survival_age + (1|year) + (1|id) , 
                  data = df_cost,
                  family="beta")
@@ -832,13 +605,13 @@ ggsave("perch_costs.pdf", width = 4, height= 4)
 
 
 
-# Perch behavior coordination
+# Coordination perch behavior 
 
-1a) sentinel, if continuous turn-over without changing the number of perched individuals any more than expected by chance 
-1b) synchronization, if either multiple individuals are perched or non-vigilant at the same time
+a) sentinel, if continuous turn-over without changing the number of perched individuals any more than expected by chance 
+b) synchronization, if either multiple individuals are perched or non-vigilant at the same time
 
 Calculate for 
-- all adults in an observation period
+- all individuals, all adults, all adult females in an observation period
 - adults within the same sleeping burrow association (by group)
 
 
@@ -852,9 +625,11 @@ str(scanprim8)
 scanprim8$duration <- as.numeric(scanprim8$duration)
 
 # only select individuals that were observed in 5 scans and over at least 5 observation periods
-scandata_prim8_filtered <-  group_by(scanprim8, id) %>% 
-  summarize(total.dop=n_distinct(dop), total.scan=n_distinct(dos)) %>%
-  filter(!total.dop>=5 , !total.scan>=5)
+scanprim8$id <- as.factor(scanprim8$id)
+scandata_prim8_filtered <-  scanprim8 %>% 
+  dplyr::group_by(id) %>% 
+  dplyr::summarize(total.dop=n_distinct(dop), total.scan=n_distinct(dos)) %>%
+  dplyr::filter(!total.dop>=5 , !total.scan>=5)
 prim8IDs<- as.character(scandata_prim8_filtered$id)
 
 scanprim8 <- scanprim8 %>% filter(!id %in% prim8IDs)
@@ -1248,7 +1023,7 @@ fig_diff_group
 
 ```
 
-
+### plot 
 ```{r coordination plot}
 
 ggarrange(fig_coord_dop  , fig_diff_group, labels = "auto")
