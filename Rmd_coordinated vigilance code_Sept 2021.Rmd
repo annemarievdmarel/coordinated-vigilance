@@ -10,13 +10,13 @@ editor_options:
 ---
 Code for manuscript titled
 
-Synchronizing  vigilance or taking turns as sentinels? The importance of testing assumptions   
+Ground squirrels do not have a sentinel system but instead synchronise vigilance 
 
 by
 
 Annemarie van der Marel, Jane M. Waterman, Marta López-Darias
 
-submitted to Behavioral ecology & sociobiology July 2020, revision April 2021
+Behavioral ecology & sociobiology 
 
 
 
@@ -27,6 +27,10 @@ library(dplyr)
 library(ggplot2)
 library(lme4)
 library(glmmADMB) 
+# install.packages("glmmADMB", 
+#    repos=c("http://glmmadmb.r-forge.r-project.org/repos",
+#            getOption("repos")),
+#    type="source")
 library(lmtest)
 library(betareg)
 library(DHARMa)
@@ -36,6 +40,10 @@ library(reshape2)
 library("RColorBrewer")
 library(viridis)
 library(arsenal)
+library(tidyverse)
+library(rstatix)
+library(ggpubr)
+
 
 ```
 
@@ -64,6 +72,37 @@ df_cost<- read.csv("df_costs of perching.csv") %>%
 
 ```
 
+# observation hours
+```{r}
+glimpse(scandata)
+
+obs.sessions <- scandata %>%
+  group_by(year) %>%
+  summarise(n_distinct(dop))
+
+# by year
+obs.scans <- scandata %>%
+  group_by(year, dop) %>%
+  summarise(n=n_distinct(dos))
+
+sum.obs.scans <- obs.scans %>% 
+  summarise(mean=mean(n), sd=sd(n), n=n(), se =sd/sqrt(n))
+#write.csv(sum.obs.scans, "observation hours by year.csv")
+
+# overall
+obs.scans <- scandata %>%
+  group_by(dop) %>%
+  summarise(n_scans=n_distinct(dos))
+
+observation.hours <- length(unique(scandata$dos)) / 6 
+
+sum.obs.scans <- obs.scans %>% 
+  summarise(mean=mean(n_scans), sd=sd(n_scans), n=n(), se =sd/sqrt(n))
+#write.csv(sum.obs.scans, "observation hours.csv")
+
+
+
+```
 
 
 # Group size
@@ -333,7 +372,6 @@ dist_perch_group_summ
 
 
 
-
 # Perch behavior characteristics
 
 ## Do all individuals perform perch behavior? 
@@ -343,7 +381,7 @@ nIDs<-distinct(scandata, id)
 nperched<-filter(scandata, behaviour_1 =="perch" | behaviour_2=="perch") %>%
   distinct(id)  
 length(nperched$id)/length(nIDs$id)*100 # With filter: 99.3% individuals perch
-
+length(nIDs$id)
 
 ```
 
@@ -354,7 +392,7 @@ perch behavior when predators are not observed and present
 
 amount of time spent perched predator presence and absence
 ```{r predation risk}
-head(scandata)
+#head(scandata)
 
 unique(scandata$source)
 predators<- c("raven", "shrike", "ravens", "buteo", "cat", "dog", "kestrel", "humans")
@@ -388,12 +426,7 @@ perchperscan.pred <- percperch %>%
                         n=n(), se=sd/sqrt(n), 
                         min=min(perched),max=max(perched))
 
-# plot 
-fig_extstimulus<- ggplot(percperch, aes(x=extstimulus, y=perched)) +
-  geom_boxplot() +
-  theme_classic() +
-  labs(x = "external stimulus", y="proportion of perched squirrels")
-fig_extstimulus
+# test
 
 hist(percperch$perched)
 shapiro.test(percperch$perched)
@@ -415,13 +448,23 @@ ra = abs(Za)/sqrt(N)
 names(ra) = "ra"
 ra
 
+# plot 
+percperch$extstimulus
+percperch$predator <- factor(percperch$extstimulus, levels=c("not observed", "predator"), labels = c("no", "yes"))
+
+
+fig_extstimulus<- ggplot(percperch, aes(x=predator, y=perched)) +
+  geom_boxplot() +
+  theme_classic() +
+  labs(x = "predator sighted", y="proportion of perched squirrels")
+fig_extstimulus
 
 ```
 
 Proportion group members perched per scan
 ```{r prop perched predator absence vs presence}
 
-head(percperch) 
+#head(percperch) 
 collperch<- mutate(percperch, bin = "")
 
 collperch$bin[collperch$nperch==1]<-1
@@ -429,7 +472,7 @@ collperch$bin[collperch$nperch>1]<-">1"
 collperch$bin[collperch$nperch==0.0]<-0
 collperch$bin<-factor(collperch$bin, levels=c(0,1,">1"))
 
-head(collperch)
+#head(collperch)
 
 # not controlled for number of scans
 distr.perched<- dplyr::group_by(collperch, extstimulus, bin) %>%
@@ -441,17 +484,20 @@ sum(distr.perched$n) # total 3233 scans (absent: 3023, present: 210)
 all<- dplyr::group_by(collperch,  bin) %>%
  dplyr::summarise(n=n()) %>%
   mutate(perc =n/sum(n))
+all
 sum(all$n)
 absent<- collperch %>% dplyr::filter(extstimulus == "not observed") %>%
   dplyr::group_by(extstimulus, bin) %>%
   dplyr::summarise(n=n()) %>%
   mutate(perc =n/sum(n))
 sum(absent$n)
+absent
 present<- collperch %>% dplyr::filter(extstimulus == "predator") %>%
   dplyr::group_by(extstimulus, bin) %>%
   dplyr::summarise(n=n()) %>%
   mutate(perc =n/sum(n))
 sum(present$n)
+present
 
 # plot
 
@@ -461,7 +507,7 @@ fig_predator <- ggplot(extstim, aes(x=bin, y=perc, fill=extstimulus)) +
   geom_col(position = "dodge") +
   theme_classic() +
   labs(x = "number of perched squirrels", y= "proportion of scans") +
-  scale_fill_viridis(discrete = T, begin= 0.2, end= 0.9, option = "E") 
+  scale_fill_viridis(discrete = T, begin= 0.2, end= 0.9, option = "E", name = "predator sighted", labels = c("no", "yes")) 
 fig_predator
 
 
@@ -484,12 +530,16 @@ ggsave("predator.pdf")
 
 What are the costs of perching?
 - less time for foraging --> negative correlation between perching and foraging
+
+Body condition
 - lower body condition --> not enough time to forage
-- survival effect: 
-    - lower survival --> increased predation risk because located at raised positions (highly visible)
-    - higher survival --> decreased predation risk because closer to cover when perched
+- higher body condition --> body condition dependent (only enough energy to perch when in good body condition)
 
+Survival effect 
+- lower survival --> increased predation risk because located at raised positions (highly visible)
+- higher survival --> decreased predation risk because closer to cover when perched
 
+Model:
 perching - propfeed + bc + survival + (1|year) + (1|id)
 
 
@@ -511,9 +561,10 @@ df_cost$id<-as.factor(df_cost$id)
 # use survival_age instead of survived as we don't include individuals in a year that haven't survived
 
 ## Collinearity of the explanatory variables ----
+# exlcude VIF > 3
 library(psych) #Calls: pairs.panels
 library(car) #Calls: vif
-citation("car")
+#citation("car")
 library(plyr) #Calls: rbind.fill
 library(usdm)
 
@@ -572,7 +623,8 @@ exp(coef(mfull))
 a<- ggplot(df_cost , aes(x=propfeed, y=propperch)) +
   geom_point() +
   theme_classic() +
-  labs(x="proportion of time feeding", y="") #+
+  labs(x="proportion of time feeding", y="") +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) 
   #geom_smooth()
   #geom_abline(slope = -2.38, intercept = -0.17)
 a
@@ -580,8 +632,8 @@ a
 b <- ggplot(df_cost , aes(x=bc, y=propperch)) +
   geom_point() +
   theme_classic() +
-  labs(x="body condition", y="proportion of time perching") 
-  #geom_smooth()
+  labs(x="body condition", y="proportion of time perching") +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) 
   #geom_abline(slope = 0.56, intercept = -0.17)
 b
 
@@ -597,7 +649,7 @@ ggarrange(a,b,c, ncol = 1, nrow = 3,
           hjust = -2 , vjust= 0.5, # label position
           labels="auto")
 
-ggsave("perch_costs.pdf", width = 4, height= 4)
+#ggsave("perch_costs.pdf", width = 4, height= 4)
 
 ```
 
@@ -612,17 +664,20 @@ b) synchronization, if either multiple individuals are perched or non-vigilant a
 
 Calculate for 
 - all individuals, all adults, all adult females in an observation period
+        - all scans, scans with predators, and without predators
 - adults within the same sleeping burrow association (by group)
+        - all scans, scans with predators, and without predators
 
 
 ## Coordination of perch behavior (n = observation period)
 
 ready data
 ```{r}
-head(scanprim8)
+#head(scanprim8)
 str(scanprim8)
 
 scanprim8$duration <- as.numeric(scanprim8$duration)
+
 
 # only select individuals that were observed in 5 scans and over at least 5 observation periods
 scanprim8$id <- as.factor(scanprim8$id)
@@ -844,7 +899,7 @@ diff <- duration_obs_long %>%
 
 ```{r compare observed vs expected at least 1 perched}
 
-head(diff)
+#head(diff)
 
 # Wilcoxon signed-rank test -----------------------------------------
 coord <- duration.obs %>% left_join(duration.exp, by="dop")
@@ -880,7 +935,7 @@ result.sum <- result %>%
 # plot
 
 vigresults_dop<-left_join(diff, scanprim8_groupsize_dop , by="dop")
-fig_coord_dop <- ggplot(vigresults, aes(x=groupsize, y=diff, color=individuals)) +
+fig_coord_dop <- ggplot(vigresults_dop, aes(x=groupsize, y=diff, color=individuals)) +
                  geom_point() + # shape=1
                  theme_classic() +
                  labs(x = "group size", y= "Pobs - Pexp") +
@@ -899,6 +954,10 @@ POtential Issue of potential pseudoreplication using all individuals observed pe
 
 AS group membership changes per year, calculate coordination per year. 
 
+
+### all data
+model: proportion time spent perching - proportion typ (observed vs expected) + (1|year) + (1|group)
+proportion of time spent perching as dependent variable and the proportion type (observed or expected) as independent variable, with year and social group as random factors. 
 
 ```{r Loop to get coordination/group}
 glimpse(scanprim8)
@@ -979,21 +1038,30 @@ result <-  dplyr::bind_rows(datalist) %>%
   dplyr::select(group, everything()) %>%
   mutate(diff=Pobs-Pexp)
 
-head(result)
+#head(result)
+
+## add group size
+scanprim8_groupsize_group <- scanprim8 %>% 
+  dplyr::group_by(year, group) %>%
+  dplyr::summarise(groupsize=n_distinct(id))
+vigresult <- left_join(result, scanprim8_groupsize_group , by=c("year", "group"))
 
 # compare observed vs expected at least 1 perched ----
+range(vigresult$Pobs)
+range(vigresult$Pexp)
 
-wilcox.test(result$Pobs, result$Pexp, paired = T)
-
-
-# summarize 
-result_long <- result%>% 
+## summarize
+result_long <- vigresult %>% 
   #dplyr::select(-diff) %>%
-  pivot_longer(cols = -c(1:2) , 
+  pivot_longer(cols = c(3:5) , 
                names_to= "type",
                values_to= "prop") %>% 
   mutate(P = as.character(gsub("P","", type))) %>%
   drop_na(prop)
+
+result_long1 <- result_long %>% 
+  filter(type!="diff")
+
   
 result.sum <- result_long %>%
   dplyr::group_by(type) %>%
@@ -1002,14 +1070,82 @@ result.sum <- result_long %>%
             n=length(unique(group)),
             se=sd/sqrt(n))
 
+## stat
 
-# plot
-scanprim8_groupsize_group <- scanprim8 %>% 
-  dplyr::group_by(year, group) %>%
-  dplyr::summarise(groupsize=n_distinct(id))
-vigresults<-left_join(diff, scanprim8_groupsize_group , by=c("year", "group"))
+### mixed model with group as random factor (beta distribution) -----
+range(result_long1$prop)
+result_long1$prop[result_long1$prop==0] <- 0.001
 
-fig_diff_group <- ggplot(vigresults, 
+glimpse(result_long1)
+result_long1$group<- as.factor(result_long1$group)
+result_long1$year<- as.factor(result_long1$year)
+result_long1$P<-factor(result_long1$type, levels = c("Pobs", "Pexp"))
+
+
+mfull<- glmmadmb(prop ~ P + (1|year) + (1|group) , 
+                 data = result_long1,
+                 family="beta")
+summary(mfull)
+
+m0<- glmmadmb(prop ~ 1 + (1|year) + (1|group) , 
+                 data = result_long1,
+                 family="beta")
+summary(m0)
+
+
+lrtest(mfull, m0)
+
+## check group size effect --> not part of a priori predictions
+#mfull.group<- glmmadmb(prop ~ P + groupsize + (1|year) + (1|group) , 
+#                 data = result_long1,
+#                 family="beta")
+#summary(mfull.group)
+#lrtest(mfull.group, m0)
+
+
+model <- mfull
+1-var(residuals(model)/var(model.response(model.frame(model))))
+
+      
+plot(fitted(model), residuals(model), xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, lty = 2) #create a dashed horizontal line representing zero
+lines(smooth.spline(fitted(model), residuals(model))) 
+
+
+# odds ratio
+exp(coef(mfull))
+
+### comparing means 
+wilcox.test(result$Pobs, result$Pexp, paired = T)
+
+bxp <- ggpaired(result_long1, x = "type", y = "prop", 
+         order = c("Pobs", "Pexp"),
+         ylab = "P", xlab = "")
+bxp
+
+gghistogram(result, x = "diff", y = "..density..", 
+            fill = "steelblue",bins = 5, add_density = TRUE)
+
+stat.test <- result_long1  %>%
+  #wilcox_test(prop ~ type, paired = TRUE) %>%
+  sign_test(prop ~ type) %>%
+  add_significance()
+#stat.test
+
+stat.test <- stat.test %>% add_xy_position(x = "group")
+bxp + 
+  stat_pvalue_manual(stat.test, tip.length = 0) +
+  labs(
+  subtitle = get_test_label(stat.test, detailed= TRUE)
+  )
+
+effect_size <- result_long1  %>% 
+  wilcox_effsize(prop ~ type, paired = TRUE)
+
+
+
+## plot ----
+fig_diff_group <- ggplot(vigresult, 
                          aes(x=as.integer(groupsize), y=diff, color=group)) +
                  geom_point() + # shape=1
                  theme_classic() +
@@ -1017,16 +1153,266 @@ fig_diff_group <- ggplot(vigresults,
                  geom_hline(yintercept = 0) +
                  facet_grid(.~year) +
                  scale_color_viridis_d(name="") +
-                 theme(legend.position="none")
+                 theme(legend.position="none") +
+                 scale_x_continuous(limits = c(0, 10), 
+                                    breaks = c(2,4,6,8,10))
 fig_diff_group
 #ggsave("fig_diff_group.pdf", width = 84, height = 50, units = "mm")
 
 ```
 
+### model: prop - type + predator +  (year) + (groupID) 
+Using social groups as our sample size, we also tested for coordination when predators were (n = 48 scans in 20 observation sessions) and were not (n = 977 scans in 176 observation sessions) observed. For this analysis, we only selected social groups that were observed during at least 2 predator encounters each year (n = 9 social groups). We used a glmmADMB with the proportion of time spent perched as dependent variable, an interaction between proportion type and predator presence as independent variable and year and group ID as random factors. 
+
+model: proportion time spent perching ~ proportion type (observed vs expected) * predator presence + (1|year) + (1|group)
+
+```{r Loop to get coordination/group predators}
+glimpse(scanprim8)
+
+# predators 
+unique(scanprim8$source)
+predators<- c("raven", "shrike", "ravens", "buteo", "cat", "dog", "kestrel", "humans")
+
+scanprim8_pred <- scanprim8 %>% 
+  dplyr::mutate(extstimulus =
+           ifelse(source==""|source=="unknown"|source== "after pigeon call", "not observed", "predator"))
+unique(scanprim8_pred$extstimulus)
+
+total_sum_predators <- scanprim8_pred %>%
+  dplyr::group_by( extstimulus) %>%
+  dplyr::summarise(n=n_distinct(dop))
+
+sum_predators <- scanprim8_pred %>%
+  dplyr::group_by(year, extstimulus, group) %>%
+  dplyr::summarise(n=n_distinct(dop)) %>%
+  dplyr::ungroup() %>%
+  dplyr::filter(group!="", n>1) # only keep groups with over 1 observation session with predator
+
+
+keep_groups <- sum_predators %>%
+  filter(extstimulus=="predator") %>%
+  dplyr::select(year, group)
+
+scanprim8_select <- semi_join(scanprim8_pred, keep_groups, by = c("year", "group"))# select scan data of groups that have at least 2 predator encounters to compare with non-predator scans
+unique(scanprim8_select$group)
+unique(keep_groups$group)
+
+check_groups <- scanprim8_select %>%
+  dplyr::group_by(year, group) %>%
+  dplyr::summarise(n=n_distinct(dop))
+
+# start loop
+unique(scanprim8_select$group)
+glimpse(scanprim8_select)
+
+group <- unique(scanprim8_select$group)
+
+datalist = list()
+
+results <- data.frame( run.code=character(),
+                       year=integer(),
+                       predator=character(),
+                       Pobs=numeric(),
+                       Pexp=numeric()
+                     )
+i=1
+
+for(i in seq_along(unique(scanprim8_select$group))){
+  run.code <- group[i]
+  print(run.code)
+  run.data <- subset(scanprim8_select, group==run.code)
+
+# observed proportion at least 1 perched
+obs.dur <- dplyr::group_by(run.data, year, extstimulus , id) %>%
+          dplyr::summarise( scans.ID = n_distinct(dos))  %>%  # per dop in how many scans was each squirrel observed
+  dplyr::summarise(total.scans = sum(scans.ID), 
+            grp.size = n_distinct(id)) %>%
+  mutate(time.scans= total.scans*600)  # sum duration (scans each ID /dop observed)
+#sum(obs.dur$time.scans)
+
+obs.perch <- run.data %>% 
+  dplyr::group_by(year, extstimulus) %>%
+  dplyr::filter(behaviour_1 =="perch" | behaviour_2=="perch", duration>30) %>%
+  dplyr::summarise(time.perch = sum(duration))  # sum duration perched
+#sum(obs.perch$time.perch)
+
+duration <- obs.dur %>% 
+  left_join(obs.perch, by = c("year", "extstimulus")) %>% 
+  mutate(Pobs= time.perch/time.scans) %>% 
+  dplyr::select(year,extstimulus, Pobs)
+
+duration[is.na(duration)] <- 0
+
+# expected proportion at least 1 perched -------
+
+## total time observed
+exp.dur <- dplyr::group_by(run.data, year,extstimulus ,  id) %>%
+              dplyr::summarise(scans.obs = n_distinct(dos))  %>%  
+              dplyr::mutate(time.obs = scans.obs*600)
+
+## total time spent perched
+exp.perch <- dplyr::group_by(run.data, year,extstimulus ,  id) %>%
+  dplyr::filter(behaviour_1 =="perch" | behaviour_2=="perch", duration>30) %>%
+  dplyr::summarise(time.perch = sum(duration))       
+
+## combine
+p.exp = merge(exp.dur, exp.perch, all.x = T) 
+p.exp$time.perch[is.na(p.exp$time.perch)]=0
+
+## proportion of time that individual i is perched
+Pexp.dur <- mutate(p.exp, exp.dur = 1-time.perch/time.obs) # updated! 
+
+## multiply expected proportion per group 
+product <- Pexp.dur %>%
+  dplyr::group_by(year, extstimulus ) %>%
+  dplyr::summarize(exp= prod(exp.dur)) %>% # prod multiplies all with one another
+  dplyr::mutate(Pexp=1-exp) %>% 
+  dplyr::select(-exp)
+
+# combine results
+pool<- cbind.data.frame(duration ,product) 
+pool <- pool[-c(4,5)]
+
+pool$group <- run.code  # maybe you want to keep track of which iteration produced it?
+    datalist[[i]] <- pool
+}
+
+result <-  dplyr::bind_rows(datalist) %>%
+  dplyr::select(group, everything()) %>%
+  mutate(diff=Pobs-Pexp)
+
+# add group size
+scanprim8_groupsize_group <- scanprim8 %>% 
+  dplyr::group_by(year, group) %>%
+  dplyr::summarise(groupsize=n_distinct(id))
+result_pred<-left_join(result, scanprim8_groupsize_group , by=c("year", "group"))
+
+#head(result)
+
+# compare observed vs expected at least 1 perched ----
+
+## summarize 
+result_long <- result_pred %>% 
+  #dplyr::select(-diff) %>%
+  pivot_longer(cols = c(4:6) , 
+               names_to= "type",
+               values_to= "prop") %>% 
+  mutate(P = as.character(gsub("P","", type))) %>%
+  drop_na(prop)
+
+result.sum <- result_long %>%
+  dplyr::group_by(extstimulus, type) %>%
+  dplyr::summarize(mean = mean(prop, na.rm = TRUE), 
+            sd = sd(prop, na.rm = TRUE),
+            n=length(unique(group)),
+            se=sd/sqrt(n))
+
+result.sum.year <- result_long %>%
+  dplyr::group_by(year, extstimulus, type) %>%
+  dplyr::summarize(mean = mean(prop, na.rm = TRUE), 
+            sd = sd(prop, na.rm = TRUE),
+            n=length(unique(group)),
+            se=sd/sqrt(n))
+
+
+##stats ----
+
+# GLMM: prop - type * predator + group size + (1|year) + (1|groupID) or
+# GLMM: prop diff - predator + group size + (1|year) + (1|groupID) 
+result_long1 <- result_long %>% 
+  dplyr::filter(type!="diff") 
+glimpse(result_long1)
+result_long1$group<- as.factor(result_long1$group)
+result_long1$year<- as.factor(result_long1$year)
+result_long1$type<-factor(result_long1$type, levels = c("Pobs", "Pexp"))
+result_long1$prop[result_long1$prop==0] <- 0.001
+  
+range(result_long1$prop) 
+hist(result_long1$prop)
+qqnorm(result_long1$prop)
+qqline(result_long1$prop)
+shapiro.test(result_long1$prop)
+library(fitdistrplus)
+descdist(result_long1$prop, discrete = FALSE) 
+
+mfull<- glmmadmb(prop ~ type * extstimulus +  (1|year) + (1|group) ,
+                 data = result_long1,
+                 family = "beta")
+summary(mfull)
+
+#?isSingular
+#isSingular(mfull, tol = 1e-4)
+
+# admb.opts = admbControl(shess=FALSE,noinit=FALSE,  impSamp=200,maxfn=1000,imaxfn=500,maxph=5)
+
+m0<- glmmadmb(prop ~ 1 + (1|year) + (1|group) , 
+                 data = result_long1,
+                 family="beta")
+summary(m0)
+
+
+aic<-AIC( mfull, m0)
+
+lrtest(mfull, m0)
+
+model <- mfull
+1-var(residuals(model)/var(model.response(model.frame(model))))
+
+      
+plot(fitted(model), residuals(model), xlab = "Fitted Values", ylab = "Residuals")
+abline(h = 0, lty = 2) #create a dashed horizontal line representing zero
+lines(smooth.spline(fitted(model), residuals(model))) 
+
+# odds ratio
+exp(coef(mfull))
+
+
+
+
+## plot ----
+glimpse(result_long)
+vigresults <- result_long %>% filter(P =="diff")
+
+fig_diff_group_ns <- vigresults %>% 
+  filter(extstimulus=="not observed") %>%                                               ggplot(aes(x=as.integer(groupsize), y=prop, color=group)) +
+                 geom_point() + # shape=1
+                 theme_classic() +
+                 ggtitle("predator not sighted") +
+                 labs(x = "", y= "Pobs - Pexp") +
+                 geom_hline(yintercept = 0) +
+                 facet_grid(.~year) +
+                 scale_color_viridis_d(name="") +
+                 theme(legend.position="none") +
+                 scale_x_continuous(limits = c(0, 10), 
+                                    breaks = c(2,4,6,8,10)) 
+fig_diff_group_ns
+
+fig_diff_group_pred <- vigresults %>% 
+  filter(extstimulus=="predator") %>%                                               ggplot(aes(x=as.integer(groupsize), y=prop, color=group)) +
+                 geom_point() + # shape=1
+                 theme_classic() +
+                 ggtitle("predator sighted") +
+                 labs(x = "group size", y= "Pobs - Pexp") +
+                 geom_hline(yintercept = 0) +
+                 facet_grid(.~year) +
+                 scale_color_viridis_d(name="") +
+                 theme(legend.position="none") +
+                 scale_x_continuous(limits = c(0, 10), 
+                                    breaks = c(2,4,6,8,10)) 
+fig_diff_group_pred
+
+
+#ggsave("fig_diff_group_pred.pdf", width = 84, height = 50, units = "mm")
+
+```
+
+
 ### plot 
 ```{r coordination plot}
 
-ggarrange(fig_coord_dop  , fig_diff_group, labels = "auto")
+ggarrange(fig_diff_group_ns  , fig_diff_group_pred, labels = "auto",
+          nrow = 2, ncol=1)
+ggsave("fig3.pdf", width = 84, height = 100, units = "mm")
 
 ```
 
